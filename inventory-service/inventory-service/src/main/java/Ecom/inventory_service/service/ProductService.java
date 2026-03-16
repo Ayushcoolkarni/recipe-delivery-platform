@@ -13,4 +13,7 @@ public interface ProductService {
     ProductResponse updateStock(Long id, Integer quantity);
     void deleteProduct(Long id);
     void deductStock(Long productId, Integer quantity);
+
+
+    boolean isInStock(Long productId);
 }

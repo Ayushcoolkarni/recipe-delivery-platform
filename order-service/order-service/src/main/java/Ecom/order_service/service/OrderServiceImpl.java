@@ -1,5 +1,6 @@
 package Ecom.order_service.service;
 
+import Ecom.order_service.client.InventoryClient;
 import Ecom.order_service.dto.request.*;
 import Ecom.order_service.dto.response.*;
 import Ecom.order_service.entity.*;
@@ -21,9 +22,20 @@ public class OrderServiceImpl implements OrderService {
     private final OrderRepository orderRepository;
     private final OrderMapper orderMapper;
     private final KafkaTemplate<String, OrderPlacedEvent> kafkaTemplate;
+    private final InventoryClient inventoryClient;
 
     @Override
     public OrderResponse placeOrder(OrderRequest request) {
+
+        // 🔹 Check inventory first
+        for (var item : request.getItems()) {
+            boolean inStock = inventoryClient.isInStock(item.getProductId());
+
+            if (!inStock) {
+                throw new RuntimeException("Product out of stock: " + item.getProductId());
+            }
+        }
+
         List<OrderItem> items = request.getItems().stream().map(i ->
                 OrderItem.builder()
                         .productId(i.getProductId())
@@ -41,10 +53,11 @@ public class OrderServiceImpl implements OrderService {
                 .userId(request.getUserId())
                 .addressId(request.getAddressId())
                 .totalAmount(total)
-                .orderItems(items)
                 .build();
 
         items.forEach(i -> i.setOrder(order));
+        order.setOrderItems(items);
+
         Order saved = orderRepository.save(order);
 
         kafkaTemplate.send("order.placed", OrderPlacedEvent.builder()
@@ -52,6 +65,12 @@ public class OrderServiceImpl implements OrderService {
                 .userId(saved.getUserId())
                 .totalAmount(saved.getTotalAmount())
                 .status(saved.getStatus().name())
+                .items(saved.getOrderItems().stream()
+                        .map(i -> OrderPlacedEvent.OrderItemEvent.builder()
+                                .productId(i.getProductId())
+                                .quantity(i.getQuantity())
+                                .build())
+                        .collect(Collectors.toList()))
                 .build());
 
         return orderMapper.toResponse(saved);

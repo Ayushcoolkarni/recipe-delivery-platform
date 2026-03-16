@@ -24,6 +24,10 @@ public class ProductController {
     public ResponseEntity<ProductResponse> getById(@PathVariable Long id) {
         return ResponseEntity.ok(productService.getProductById(id));
     }
+    @GetMapping("/{id}/in-stock")
+    public ResponseEntity<Boolean> isInStock(@PathVariable Long id) {
+        return ResponseEntity.ok(productService.isInStock(id));
+    }
 
     @GetMapping
     public ResponseEntity<List<ProductResponse>> getAll() {
