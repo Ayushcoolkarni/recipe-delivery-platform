@@ -11,6 +11,16 @@ import org.springframework.stereotype.Component;
 import javax.crypto.SecretKey;
 import java.util.Base64;
 
+/**
+ * JWT validation utility for the API Gateway.
+ *
+ * Uses the same secret as user-service so tokens signed there
+ * can be verified here without calling user-service.
+ *
+ * Secret format: Base64-encoded bytes
+ * (the value 404E635266... is a hex string that gets Base64-decoded
+ *  to a 48-byte key, which JJWT signs as HS384)
+ */
 @Slf4j
 @Component
 public class JwtUtil {
@@ -22,41 +32,38 @@ public class JwtUtil {
 
     @PostConstruct
     public void init() {
-        // Decode the same hex secret used by user-service
-        byte[] keyBytes = Base64.getDecoder().decode(secret);
-        this.secretKey = Keys.hmacShaKeyFor(keyBytes);
+        try {
+            byte[] keyBytes = Base64.getDecoder().decode(secret);
+            this.secretKey = Keys.hmacShaKeyFor(keyBytes);
+            log.info("Gateway JWT key initialised — {} bits", keyBytes.length * 8);
+        } catch (Exception e) {
+            log.error("Failed to initialise JWT key: {}", e.getMessage());
+            throw new RuntimeException("Invalid JWT secret configuration", e);
+        }
     }
 
-    /**
-     * Validates the token signature and expiry.
-     * Returns true if the token is well-formed and not expired.
-     */
     public boolean isTokenValid(String token) {
         try {
-            getClaims(token);
-            return true;
+            Claims claims = getClaims(token);
+            // Check expiry explicitly
+            return claims.getExpiration().after(new java.util.Date());
         } catch (Exception e) {
-            log.debug("Invalid JWT: {}", e.getMessage());
+            log.debug("JWT validation failed: {}", e.getMessage());
             return false;
         }
     }
 
-    /** Extracts the subject (userId) from the token. */
     public String extractUserId(String token) {
         return getClaims(token).getSubject();
     }
 
-    /** Extracts the role claim from the token. */
     public String extractRole(String token) {
         return getClaims(token).get("role", String.class);
     }
 
-    /** Extracts the email claim from the token. */
     public String extractEmail(String token) {
         return getClaims(token).get("email", String.class);
     }
-
-    // ── private ──────────────────────────────────────────────────
 
     private Claims getClaims(String token) {
         return Jwts.parser()

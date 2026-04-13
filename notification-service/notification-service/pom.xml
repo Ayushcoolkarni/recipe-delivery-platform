@@ -50,7 +50,7 @@
             <artifactId>spring-kafka</artifactId>
         </dependency>
 
-        <!-- Email — JavaMailSender -->
+        <!-- Email — JavaMailSender (Gmail SMTP) -->
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-mail</artifactId>
@@ -62,7 +62,7 @@
             <artifactId>spring-cloud-starter-netflix-eureka-client</artifactId>
         </dependency>
 
-        <!-- Load balancer — for @LoadBalanced RestClient calling user-service -->
+        <!-- Load balancer — for @LoadBalanced RestClient to call user-service -->
         <dependency>
             <groupId>org.springframework.cloud</groupId>
             <artifactId>spring-cloud-starter-loadbalancer</artifactId>

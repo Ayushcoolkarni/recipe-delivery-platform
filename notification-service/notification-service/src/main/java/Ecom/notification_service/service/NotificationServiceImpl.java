@@ -25,7 +25,8 @@ public class NotificationServiceImpl implements NotificationService {
         emailService.sendHtml(
                 email,
                 "Order Confirmed – #" + event.getOrderId(),
-                EmailTemplates.buildOrderConfirmation(event.getOrderId(), event.getTotalAmount())
+                EmailTemplates.buildOrderConfirmation(
+                        event.getOrderId(), event.getTotalAmount())
         );
 
         log.info("Order confirmation sent → userId={} orderId={}",
@@ -41,7 +42,7 @@ public class NotificationServiceImpl implements NotificationService {
 
         emailService.sendHtml(
                 email,
-                "Your Order #" + event.getOrderId() + " has been Shipped!",
+                "Your Order #" + event.getOrderId() + " Has Been Shipped!",
                 EmailTemplates.buildShippingNotification(event.getOrderId())
         );
 
@@ -58,7 +59,7 @@ public class NotificationServiceImpl implements NotificationService {
 
         emailService.sendHtml(
                 email,
-                "Your Order #" + event.getOrderId() + " has been Delivered!",
+                "Your Order #" + event.getOrderId() + " Has Been Delivered!",
                 EmailTemplates.buildDeliveryNotification(event.getOrderId())
         );
 
@@ -70,12 +71,11 @@ public class NotificationServiceImpl implements NotificationService {
 
     /**
      * Resolves the recipient email address.
-     * First checks if the event already carries an email (future proofing),
-     * then falls back to calling user-service.
-     * Returns null if email cannot be resolved — caller skips sending.
+     * First checks if the event already carries one,
+     * then falls back to calling user-service via REST.
      */
     private String resolveEmail(OrderPlacedEvent event) {
-        // Use email from event if already present
+        // Use email from event payload if already present
         if (event.getUserEmail() != null && !event.getUserEmail().isBlank()) {
             return event.getUserEmail();
         }
@@ -84,7 +84,7 @@ public class NotificationServiceImpl implements NotificationService {
         String email = userServiceClient.getEmailByUserId(event.getUserId());
 
         if (email == null) {
-            log.warn("Cannot send notification — no email found for userId={}",
+            log.warn("Cannot send notification — no email resolved for userId={}",
                     event.getUserId());
         }
 

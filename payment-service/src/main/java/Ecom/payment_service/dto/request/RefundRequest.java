@@ -4,7 +4,7 @@ import lombok.Data;
 
 @Data
 public class RefundRequest {
-    private Long paymentId;
+    private Long   orderId;
     private Double amount;
     private String reason;
 }

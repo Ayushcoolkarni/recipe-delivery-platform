@@ -6,6 +6,7 @@ import Ecom.user_service.dto.response.*;
 public interface UserService {
     AuthResponse register(RegisterRequest request);
     AuthResponse login(LoginRequest request);
+    AuthResponse refreshToken(String refreshToken);
     UserResponse getUserById(Long id);
     UserResponse updateUser(Long id, RegisterRequest request);
     AddressResponse addAddress(Long userId, AddressRequest request);

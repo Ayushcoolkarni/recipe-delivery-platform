@@ -24,7 +24,7 @@ public class EmailServiceImpl implements EmailService {
         try {
             MimeMessage message = mailSender.createMimeMessage();
 
-            // true = multipart, "UTF-8" = encoding
+            // true = multipart (needed for HTML), "UTF-8" = encoding
             MimeMessageHelper helper = new MimeMessageHelper(message, true, "UTF-8");
             helper.setFrom(fromAddress);
             helper.setTo(to);
@@ -32,12 +32,11 @@ public class EmailServiceImpl implements EmailService {
             helper.setText(htmlBody, true); // true = isHtml
 
             mailSender.send(message);
-
-            log.info("Email sent to {} | subject: {}", to, subject);
+            log.info("Email sent → to={} subject={}", to, subject);
 
         } catch (MessagingException e) {
-            // Log and continue — a failed email should not crash order processing
-            log.error("Failed to send email to {}: {}", to, e.getMessage());
+            // Log and continue — a failed email must not crash Kafka message processing
+            log.error("Failed to send email to={}: {}", to, e.getMessage());
         }
     }
 }

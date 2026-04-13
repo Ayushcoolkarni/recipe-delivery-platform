@@ -12,10 +12,9 @@ import org.springframework.stereotype.Component;
  *
  *   order.placed    → send order confirmation email
  *   order.shipped   → send shipping notification email
- *   order.delivered → send delivery notification email  ← NEW
+ *   order.delivered → send delivery notification email
  *
- * All three use the same event payload (OrderPlacedEvent).
- * The groupId is shared so each notification is consumed once per service instance.
+ * All three use OrderPlacedEvent as the payload.
  */
 @Slf4j
 @Component

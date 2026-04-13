@@ -8,12 +8,13 @@ import org.springframework.web.client.RestClient;
 import java.util.Map;
 
 /**
- * Calls user-service to resolve a userId → email address.
+ * Calls user-service to resolve userId → email address.
  *
- * GET /users/{id}  →  { "id": 1, "name": "Ayush", "email": "ayush@example.com", ... }
+ * GET http://user-service/users/{id}
+ * Response: { "id": 1, "name": "Ayush", "email": "ayush@gmail.com", ... }
  *
- * Returns null gracefully if user-service is unreachable — the notification
- * will be skipped and a warning logged rather than crashing the consumer.
+ * Returns null gracefully if user-service is unreachable —
+ * the notification is skipped with a warning instead of crashing.
  */
 @Slf4j
 @Component
@@ -34,7 +35,8 @@ public class UserServiceClient {
                 return response.get("email").toString();
             }
 
-            log.warn("user-service returned no email for userId={}", userId);
+            log.warn("No email found in user-service response for userId={}", userId);
+
         } catch (Exception e) {
             log.error("Failed to fetch email for userId={}: {}", userId, e.getMessage());
         }

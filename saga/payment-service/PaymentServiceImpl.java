@@ -1,0 +1,123 @@
+package Ecom.payment_service.service;
+
+import Ecom.payment_service.dto.request.PaymentRequest;
+import Ecom.payment_service.dto.request.RefundRequest;
+import Ecom.payment_service.dto.response.PaymentResponse;
+import Ecom.payment_service.entity.Payment;
+import Ecom.payment_service.entity.Refund;
+import Ecom.payment_service.enums.PaymentStatus;
+import Ecom.payment_service.event.PaymentFailedEvent;
+import Ecom.payment_service.event.PaymentSuccessEvent;
+import Ecom.payment_service.exception.ResourceNotFoundException;
+import Ecom.payment_service.kafka.KafkaTopicConfig;
+import Ecom.payment_service.mapper.PaymentMapper;
+import Ecom.payment_service.repository.PaymentRepository;
+import Ecom.payment_service.repository.RefundRepository;
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.kafka.core.KafkaTemplate;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+
+import java.util.List;
+import java.util.UUID;
+import java.util.stream.Collectors;
+
+@Slf4j
+@Service
+@RequiredArgsConstructor
+public class PaymentServiceImpl implements PaymentService {
+
+    private final PaymentRepository                          paymentRepository;
+    private final RefundRepository                           refundRepository;
+    private final PaymentMapper                              paymentMapper;
+    private final KafkaTemplate<String, PaymentSuccessEvent> successTemplate;
+    private final KafkaTemplate<String, PaymentFailedEvent>  failedTemplate;
+
+    /**
+     * Manual payment initiation via POST /payments.
+     * Used when the client explicitly triggers payment
+     * (e.g. retry after failure, COD confirmation).
+     * Also publishes Saga events so order-service stays in sync.
+     */
+    @Override
+    @Transactional
+    public PaymentResponse initiatePayment(PaymentRequest request) {
+        String transactionId = "TXN-" + UUID.randomUUID().toString().substring(0, 12).toUpperCase();
+
+        Payment payment = Payment.builder()
+                .orderId(request.getOrderId())
+                .userId(request.getUserId())
+                .amount(request.getAmount())
+                .gateway(request.getGateway())
+                .transactionId(transactionId)
+                .status(PaymentStatus.SUCCESS)
+                .build();
+
+        Payment saved = paymentRepository.save(payment);
+
+        // Publish success event so order-service confirms the order
+        PaymentSuccessEvent event = PaymentSuccessEvent.builder()
+                .orderId(saved.getOrderId())
+                .userId(saved.getUserId())
+                .transactionId(transactionId)
+                .amount(saved.getAmount())
+                .build();
+        successTemplate.send(KafkaTopicConfig.PAYMENT_SUCCESS, event);
+        log.info("[MANUAL] payment.success published — orderId={}", saved.getOrderId());
+
+        return paymentMapper.toResponse(saved);
+    }
+
+    @Override
+    public PaymentResponse getPaymentByOrderId(Long orderId) {
+        return paymentMapper.toResponse(
+                paymentRepository.findByOrderId(orderId)
+                        .orElseThrow(() -> new ResourceNotFoundException(
+                                "Payment not found for orderId: " + orderId)));
+    }
+
+    @Override
+    public List<PaymentResponse> getPaymentsByUser(Long userId) {
+        return paymentRepository.findByUserId(userId).stream()
+                .map(paymentMapper::toResponse)
+                .collect(Collectors.toList());
+    }
+
+    /**
+     * Process a refund.
+     * Uses orderId (from RefundRequest) to look up the payment,
+     * marks it REFUNDED, saves a Refund record, and publishes
+     * payment.failed so order-service can cancel if still PENDING.
+     */
+    @Override
+    @Transactional
+    public PaymentResponse processRefund(RefundRequest request) {
+        Payment payment = paymentRepository.findByOrderId(request.getOrderId())
+                .orElseThrow(() -> new ResourceNotFoundException(
+                        "Payment not found for orderId: " + request.getOrderId()));
+
+        payment.setStatus(PaymentStatus.REFUNDED);
+        paymentRepository.save(payment);
+
+        Refund refund = Refund.builder()
+                .paymentId(payment.getId())
+                .amount(request.getAmount() != null ? request.getAmount() : payment.getAmount())
+                .reason(request.getReason())
+                .status("PROCESSED")
+                .build();
+        refundRepository.save(refund);
+
+        // Notify order-service to cancel if order is still PENDING
+        PaymentFailedEvent failedEvent = PaymentFailedEvent.builder()
+                .orderId(payment.getOrderId())
+                .userId(payment.getUserId())
+                .reason("Refund processed: " + request.getReason())
+                .amount(payment.getAmount())
+                .build();
+        failedTemplate.send(KafkaTopicConfig.PAYMENT_FAILED, failedEvent);
+        log.info("[REFUND] payment.failed published for refund — orderId={}", payment.getOrderId());
+
+        return paymentMapper.toResponse(payment);
+    }
+}
