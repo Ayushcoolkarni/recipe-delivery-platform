@@ -1,38 +1,32 @@
-# ── Secrets — NEVER commit these ──────────────────────────────────────────────
+# Secrets
 .env
-*.env
-.env.*
-!.env.example
 
-# ── Build output ───────────────────────────────────────────────────────────────
-target/
-*.jar
-*.war
-*.class
-
-# ── IDE ────────────────────────────────────────────────────────────────────────
+# IntelliJ
 .idea/
 *.iml
+
+# VS Code
 .vscode/
-*.suo
-*.user
 
-# ── Maven wrapper ─────────────────────────────────────────────────────────────
-.mvn/
-mvnw
-mvnw.cmd
-
-# ── Logs ──────────────────────────────────────────────────────────────────────
+# Java / Maven
+target/
+*.class
+*.jar
+*.war
 *.log
-logs/
 
-# ── OS ────────────────────────────────────────────────────────────────────────
+# OS
 .DS_Store
 Thumbs.db
 
-# ── Docker volumes / local data ───────────────────────────────────────────────
-postgres-data/
-redis-data/
-
-# ── Zip artifacts committed by mistake ────────────────────────────────────────
+# Archives
 *.zip
+*.tar.gz
+
+# Docker local volumes
+postgres-data/
+grafana-data/
+
+# Python
+__pycache__/
+*.pyc
