@@ -92,33 +92,43 @@ services:
     container_name: ecom-prometheus
     restart: unless-stopped
     volumes:
-      - ./observability/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./docker/prometheus.yml:/etc/prometheus/prometheus.yml:ro
     ports:
       - "9090:9090"
     networks:
       - ecom-net
+    depends_on:
+      - api-gateway
+      - user-service
+      - recipe-service
+      - inventory-service
+      - order-service
+      - payment-service
+      - notification-service
+      - admin-service
     command:
       - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
       - '--storage.tsdb.retention.time=7d'
+      - '--web.enable-lifecycle'
 
   grafana:
-    image: grafana/grafana:10.4.0
+    image: grafana/grafana:10.4.2
     container_name: ecom-grafana
     restart: unless-stopped
-    depends_on:
-      - prometheus
-    ports:
-      - "3000:3000"
     environment:
-      - GF_SECURITY_ADMIN_USER=${GRAFANA_ADMIN_USER:-admin}
-      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_ADMIN_PASSWORD:-admin}
+      - GF_SECURITY_ADMIN_USER=${GRAFANA_USER:-admin}
+      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_PASSWORD:-admin}
       - GF_USERS_ALLOW_SIGN_UP=false
     volumes:
       - grafana-data:/var/lib/grafana
-      - ./observability/grafana/provisioning:/etc/grafana/provisioning:ro
-      - ./observability/grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - ./docker/grafana/provisioning:/etc/grafana/provisioning:ro
+    ports:
+      - "3000:3000"
     networks:
       - ecom-net
+    depends_on:
+      - prometheus
 
   # MICROSERVICES
 

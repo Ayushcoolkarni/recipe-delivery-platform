@@ -1,8 +1,9 @@
 server:
-  port: 8081
+  port: 8761
+
 spring:
   application:
-    name: order-service
+    name: service-registry
 
 management:
   endpoints:

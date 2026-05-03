@@ -1,8 +1,9 @@
 server:
-  port: 8081
+  port: 8084
+
 spring:
   application:
-    name: order-service
+    name: user-service
 
 management:
   endpoints:

@@ -90,3 +90,19 @@ management:
   endpoint:
     health:
       show-details: never
+
+    endpoints:
+      web:
+        exposure:
+          include: health,info,prometheus,metrics,loggers
+    endpoint:
+      health:
+        show-details: always
+      prometheus:
+        enabled: true
+    metrics:
+      export:
+        prometheus:
+          enabled: true
+      tags:
+        application: ${spring.application.name}

@@ -1,8 +1,9 @@
 server:
   port: 8081
+
 spring:
   application:
-    name: order-service
+    name: recipe-service
 
 management:
   endpoints:
