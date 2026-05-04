@@ -1,14 +1,25 @@
 package Ecom.order_service.controller;
 
 import Ecom.order_service.dto.request.CartItemRequest;
+import Ecom.order_service.dto.request.RecipeCartItemRequest;
 import Ecom.order_service.dto.response.CartResponse;
 import Ecom.order_service.dto.response.OrderResponse;
 import Ecom.order_service.service.CartService;
-import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
+/**
+ * GAP 8 FIX: Added POST /cart/{userId}/items/recipe endpoint that accepts
+ *            RecipeCartItemRequest (recipeId, servings, pricePerKit, scaledIngredients).
+ *            The old /items endpoint (productId based) is kept for backward compat.
+ *
+ * GAP 9 FIX: updateItem uses @RequestParam Integer quantity (query param),
+ *            matching api.js: PATCH /cart/{uid}/items/{id}?quantity=N
+ *
+ * GAP 11 FIX: checkout passes addressId as @RequestParam (query param),
+ *             matching api.js: POST /cart/{uid}/checkout?addressId=N
+ */
 @RestController
 @RequestMapping("/cart")
 @RequiredArgsConstructor
@@ -16,46 +27,38 @@ public class CartController {
 
     private final CartService cartService;
 
-    /**
-     * GET /cart/{userId}
-     * View current cart with all items, subtotal, estimated tax and total.
-     */
+    // ── GET cart ─────────────────────────────────────────────────────────────
     @GetMapping("/{userId}")
     public ResponseEntity<CartResponse> getCart(@PathVariable Long userId) {
         return ResponseEntity.ok(cartService.getCart(userId));
     }
 
-    /**
-     * POST /cart/{userId}/items
-     * Add an ingredient to the cart.
-     * If the same productId already exists, quantity is incremented.
-     *
-     * Body: { "productId": 1, "ingredientName": "Tomato", "quantity": 3, "pricePerUnit": 2.50 }
-     */
+    // ── ADD ingredient-level item (legacy, keep for now) ─────────────────────
     @PostMapping("/{userId}/items")
     public ResponseEntity<CartResponse> addItem(
             @PathVariable Long userId,
-            @Valid @RequestBody CartItemRequest request) {
+            @RequestBody CartItemRequest request) {
         return ResponseEntity.ok(cartService.addItem(userId, request));
     }
 
-    /**
-     * PATCH /cart/{userId}/items/{itemId}?quantity=2
-     * Update the quantity of a specific cart item.
-     * Passing quantity=0 removes the item.
-     */
+    // ── ADD recipe-level item (GAP 8 FIX — new endpoint) ─────────────────────
+    @PostMapping("/{userId}/items/recipe")
+    public ResponseEntity<CartResponse> addRecipeItem(
+            @PathVariable Long userId,
+            @RequestBody RecipeCartItemRequest request) {
+        return ResponseEntity.ok(cartService.addRecipeItem(userId, request));
+    }
+
+    // ── UPDATE qty — GAP 9 FIX: quantity as @RequestParam not @RequestBody ────
     @PatchMapping("/{userId}/items/{itemId}")
     public ResponseEntity<CartResponse> updateItem(
             @PathVariable Long userId,
             @PathVariable Long itemId,
-            @RequestParam Integer quantity) {
+            @RequestParam Integer quantity) {           // ← @RequestParam matches api.js ?quantity=N
         return ResponseEntity.ok(cartService.updateItem(userId, itemId, quantity));
     }
 
-    /**
-     * DELETE /cart/{userId}/items/{itemId}
-     * Remove a single item from the cart.
-     */
+    // ── REMOVE single item ────────────────────────────────────────────────────
     @DeleteMapping("/{userId}/items/{itemId}")
     public ResponseEntity<CartResponse> removeItem(
             @PathVariable Long userId,
@@ -63,24 +66,19 @@ public class CartController {
         return ResponseEntity.ok(cartService.removeItem(userId, itemId));
     }
 
-    /**
-     * DELETE /cart/{userId}
-     * Clear the entire cart without placing an order.
-     */
+    // ── CLEAR entire cart ─────────────────────────────────────────────────────
     @DeleteMapping("/{userId}")
     public ResponseEntity<Void> clearCart(@PathVariable Long userId) {
         cartService.clearCart(userId);
         return ResponseEntity.noContent().build();
     }
 
-    /**
-     * POST /cart/{userId}/checkout?addressId=1
-     * Validates stock → places order → clears cart → returns the new order.
-     */
+    // ── CHECKOUT — GAP 11 FIX: single authoritative checkout path ────────────
+    // Validates stock → places order → clears cart atomically
     @PostMapping("/{userId}/checkout")
     public ResponseEntity<OrderResponse> checkout(
             @PathVariable Long userId,
-            @RequestParam Long addressId) {
+            @RequestParam Long addressId) {             // ← @RequestParam matches api.js ?addressId=N
         return ResponseEntity.ok(cartService.checkout(userId, addressId));
     }
 }
