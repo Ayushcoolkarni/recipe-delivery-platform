@@ -149,6 +149,22 @@ public class UserServiceImpl implements UserService {
         savedRecipeRepository.deleteByUserIdAndRecipeId(userId, recipeId);
     }
 
+    @Override
+public AuthResponse loginOrRegisterByEmail(String email) {
+    User user = userRepository.findByEmail(email).orElseGet(() -> {
+        User newUser = User.builder()
+                .name(email.split("@")[0])
+                .email(email)
+                .passwordHash(passwordEncoder.encode(java.util.UUID.randomUUID().toString()))
+                .role(Role.CUSTOMER)
+                .isVerified(true)
+                .build();
+        log.info("Auto-registering OTP user: {}", email);
+        return userRepository.save(newUser);
+    });
+    return buildAuthResponse(user);
+}
+
     // ── private helpers ───────────────────────────────────────────
 
     private AuthResponse buildAuthResponse(User user) {

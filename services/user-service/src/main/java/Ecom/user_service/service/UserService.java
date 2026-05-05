@@ -16,4 +16,5 @@ public interface UserService {
     AddressResponse addAddress(Long userId, AddressRequest request);
     void saveRecipe(Long userId, Long recipeId);
     void removeSavedRecipe(Long userId, Long recipeId);
+    AuthResponse loginOrRegisterByEmail(String email);
 }

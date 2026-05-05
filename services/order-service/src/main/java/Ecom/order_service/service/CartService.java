@@ -3,6 +3,7 @@ package Ecom.order_service.service;
 import Ecom.order_service.dto.request.CartItemRequest;
 import Ecom.order_service.dto.response.CartResponse;
 import Ecom.order_service.dto.response.OrderResponse;
+import Ecom.order_service.dto.request.RecipeCartItemRequest;
 
 public interface CartService {
 
@@ -23,4 +24,6 @@ public interface CartService {
 
     /** Validates stock, converts cart → Order, clears cart, returns the placed order. */
     OrderResponse checkout(Long userId, Long addressId);
+
+    CartResponse addRecipeItem(Long userId, RecipeCartItemRequest request);
 }
