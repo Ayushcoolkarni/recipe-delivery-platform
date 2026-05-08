@@ -1,6 +1,45 @@
 spring:
   application:
     name: api-gateway
+  cloud:
+    gateway:
+      discovery:
+        locator:
+          enabled: true
+          lower-case-service-id: true
+      routes:
+        - id: user-service-auth
+          uri: lb://user-service
+          predicates:
+            - Path=/auth/**
+        - id: user-service
+          uri: lb://user-service
+          predicates:
+            - Path=/users/**
+        - id: recipe-service
+          uri: lb://recipe-service
+          predicates:
+            - Path=/recipes/**,/ingredients/**,/suggestions/**
+        - id: inventory-service
+          uri: lb://inventory-service
+          predicates:
+            - Path=/products/**
+        - id: order-service
+          uri: lb://order-service
+          predicates:
+            - Path=/orders/**,/cart/**
+        - id: payment-service
+          uri: lb://payment-service
+          predicates:
+            - Path=/payments/**
+        - id: admin-service
+          uri: lb://admin-service
+          predicates:
+            - Path=/admin/**
+        - id: notification-service
+          uri: lb://notification-service
+          predicates:
+            - Path=/notifications/**
 
 eureka:
   client:
