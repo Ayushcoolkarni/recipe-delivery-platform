@@ -1,256 +1,286 @@
-import React, { useState, useRef } from "react";
-import { useNavigate, Link } from "react-router-dom";
-import { api } from "./api";
+import { useState, useRef, useEffect } from "react";
 
-/**
- * OTP login flow:
- *   Step 1 — user enters email → POST /auth/otp/send
- *   Step 2 — user enters 6-digit code → POST /auth/otp/verify → JWT stored
- *
- * Add to your router in App.jsx:
- *   <Route path="/login/otp" element={<OtpLogin />} />
- */
-export default function OtpLogin() {
-  const navigate = useNavigate();
-  const [step,    setStep]    = useState("email");   // "email" | "otp"
-  const [email,   setEmail]   = useState("");
-  const [otp,     setOtp]     = useState(["", "", "", "", "", ""]);
+const BASE = process.env.REACT_APP_API_URL || "http://localhost:8080";
+
+async function sendOtp(email) {
+  const res = await fetch(`${BASE}/auth/otp/send`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ email }),
+  });
+  if (!res.ok) {
+    let msg = "Failed to send OTP";
+    try { const e = await res.json(); msg = e.message || msg; } catch (_) {}
+    throw new Error(msg);
+  }
+  return res.status === 204 ? null : res.json();
+}
+
+async function verifyOtp(email, otp) {
+  const res = await fetch(`${BASE}/auth/otp/verify`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ email, otp }),
+  });
+  if (!res.ok) {
+    let msg = "Invalid or expired OTP";
+    try { const e = await res.json(); msg = e.message || msg; } catch (_) {}
+    throw new Error(msg);
+  }
+  return res.json(); // { accessToken, userId, name, email, role }
+}
+
+export default function OtpLogin({ onLogin }) {
+  const [step, setStep] = useState("email"); // "email" | "otp"
+  const [email, setEmail] = useState("");
+  const [digits, setDigits] = useState(["", "", "", "", "", ""]);
   const [loading, setLoading] = useState(false);
-  const [toast,   setToast]   = useState(null);
-  const [resendCountdown, setResendCountdown] = useState(0);
+  const [error, setError] = useState("");
+  const [resendTimer, setResendTimer] = useState(0);
+  const [shake, setShake] = useState(false);
   const inputRefs = useRef([]);
+  const timerRef = useRef(null);
 
-  const showToast = (msg, type = "success") => {
-    setToast({ msg, type });
-    setTimeout(() => setToast(null), 3000);
+  useEffect(() => {
+    if (resendTimer > 0) {
+      timerRef.current = setTimeout(() => setResendTimer(t => t - 1), 1000);
+    }
+    return () => clearTimeout(timerRef.current);
+  }, [resendTimer]);
+
+  const triggerShake = () => {
+    setShake(true);
+    setTimeout(() => setShake(false), 500);
   };
 
-  // ── Step 1: send OTP ───────────────────────────────────────────────────────
-  const handleSendOtp = async () => {
-    if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
-      showToast("Enter a valid email address", "error");
+  const handleSendOtp = async (e) => {
+    e.preventDefault();
+    if (!email.trim() || !/\S+@\S+\.\S+/.test(email)) {
+      setError("Enter a valid email address");
+      triggerShake();
       return;
     }
     setLoading(true);
+    setError("");
     try {
-      await api.sendOtp({ email });
+      await sendOtp(email.trim());
       setStep("otp");
-      showToast("OTP sent! Check your inbox 📧");
-      startResendCountdown();
-    } catch (e) {
-      showToast(e.message || "Failed to send OTP", "error");
+      setResendTimer(30);
+      setTimeout(() => inputRefs.current[0]?.focus(), 100);
+    } catch (err) {
+      setError(err.message);
+      triggerShake();
     } finally {
       setLoading(false);
     }
   };
 
-  // ── Step 2: verify OTP ─────────────────────────────────────────────────────
-  const handleVerifyOtp = async () => {
-    const code = otp.join("");
-    if (code.length !== 6) { showToast("Enter the full 6-digit OTP", "error"); return; }
+  const handleDigitChange = (i, val) => {
+    const v = val.replace(/\D/, "").slice(-1);
+    const next = [...digits];
+    next[i] = v;
+    setDigits(next);
+    setError("");
+    if (v && i < 5) inputRefs.current[i + 1]?.focus();
+    if (next.every(d => d !== "")) handleVerifyOtp(next.join(""));
+  };
+
+  const handleKeyDown = (i, e) => {
+    if (e.key === "Backspace" && !digits[i] && i > 0) {
+      inputRefs.current[i - 1]?.focus();
+    }
+  };
+
+  const handlePaste = (e) => {
+    const pasted = e.clipboardData.getData("text").replace(/\D/g, "").slice(0, 6);
+    if (pasted.length === 6) {
+      setDigits(pasted.split(""));
+      inputRefs.current[5]?.focus();
+      handleVerifyOtp(pasted);
+    }
+  };
+
+  const handleVerifyOtp = async (code) => {
     setLoading(true);
+    setError("");
     try {
-      const res = await api.verifyOtp({ email, otp: code });
-      if (!res?.accessToken) { showToast("Invalid or expired OTP", "error"); return; }
-      localStorage.setItem("rce_t", res.accessToken);
-      localStorage.setItem("rce_r", res.refreshToken);
-      localStorage.setItem("rce_u", JSON.stringify({
-        userId: res.userId,
-        email:  res.email,
-        name:   res.name,
-        role:   res.role,
-      }));
-      showToast("Logged in! 🎉");
-      setTimeout(() => navigate("/recipes"), 800);
-    } catch (e) {
-      showToast(e.message || "OTP verification failed", "error");
+      const data = await verifyOtp(email.trim(), code);
+      onLogin(data);
+    } catch (err) {
+      setError(err.message);
+      triggerShake();
+      setDigits(["", "", "", "", "", ""]);
+      setTimeout(() => inputRefs.current[0]?.focus(), 50);
     } finally {
       setLoading(false);
     }
-  };
-
-  // ── OTP digit input handlers ───────────────────────────────────────────────
-  const handleOtpChange = (value, idx) => {
-    if (!/^\d?$/.test(value)) return;             // digits only
-    const next = [...otp];
-    next[idx] = value;
-    setOtp(next);
-    if (value && idx < 5) inputRefs.current[idx + 1]?.focus();
-    if (next.every(d => d !== "") && next.join("").length === 6) {
-      // Auto-submit when all 6 digits filled
-      setTimeout(() => handleVerifyOtpWithCode(next.join("")), 100);
-    }
-  };
-
-  const handleOtpKeyDown = (e, idx) => {
-    if (e.key === "Backspace" && !otp[idx] && idx > 0) {
-      inputRefs.current[idx - 1]?.focus();
-    }
-  };
-
-  const handleVerifyOtpWithCode = async (code) => {
-    if (code.length !== 6) return;
-    setLoading(true);
-    try {
-      const res = await api.verifyOtp({ email, otp: code });
-      if (!res?.accessToken) { showToast("Invalid or expired OTP", "error"); return; }
-      localStorage.setItem("rce_t", res.accessToken);
-      localStorage.setItem("rce_r", res.refreshToken);
-      localStorage.setItem("rce_u", JSON.stringify({
-        userId: res.userId, email: res.email, name: res.name, role: res.role,
-      }));
-      showToast("Logged in! 🎉");
-      setTimeout(() => navigate("/recipes"), 800);
-    } catch (e) {
-      showToast(e.message || "OTP verification failed", "error");
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  // ── Resend countdown ───────────────────────────────────────────────────────
-  const startResendCountdown = () => {
-    setResendCountdown(30);
-    const interval = setInterval(() => {
-      setResendCountdown(c => {
-        if (c <= 1) { clearInterval(interval); return 0; }
-        return c - 1;
-      });
-    }, 1000);
   };
 
   const handleResend = async () => {
-    if (resendCountdown > 0) return;
+    if (resendTimer > 0) return;
     setLoading(true);
+    setError("");
+    setDigits(["", "", "", "", "", ""]);
     try {
-      await api.sendOtp({ email });
-      setOtp(["", "", "", "", "", ""]);
-      inputRefs.current[0]?.focus();
-      showToast("OTP resent! Check your inbox 📧");
-      startResendCountdown();
-    } catch (e) {
-      showToast(e.message || "Failed to resend OTP", "error");
+      await sendOtp(email.trim());
+      setResendTimer(30);
+      setTimeout(() => inputRefs.current[0]?.focus(), 100);
+    } catch (err) {
+      setError(err.message);
     } finally {
       setLoading(false);
     }
   };
 
   return (
-    <div style={{ minHeight: "100vh", background: "#FAFAF8", display: "flex", alignItems: "center", justifyContent: "center", padding: 24 }}>
-      <style>{`
-        @import url('https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=DM+Sans:wght@300;400;500&display=swap');
-        @keyframes fadeUp{from{opacity:0;transform:translateY(20px)}to{opacity:1;transform:translateY(0)}}
-        @keyframes slideIn{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:translateY(0)}}
-        .otp-input:focus { border-color: #E23744 !important; box-shadow: 0 0 0 3px rgba(226,55,68,0.15) !important; }
-        .otp-input { caret-color: #E23744; }
-      `}</style>
-
-      {toast && (
-        <div style={{ position: "fixed", bottom: 24, right: 24, zIndex: 9999, background: toast.type === "error" ? "#E23744" : "#1DB954", color: "#fff", padding: "12px 22px", borderRadius: 12, fontFamily: "'Syne',sans-serif", fontWeight: 600, fontSize: 14, boxShadow: "0 8px 32px rgba(0,0,0,0.2)", animation: "slideIn 0.3s ease" }}>
-          {toast.msg}
-        </div>
-      )}
-
-      <div style={{ width: "100%", maxWidth: 420, animation: "fadeUp 0.45s ease" }}>
-        {/* Logo */}
-        <div style={{ textAlign: "center", marginBottom: 32 }}>
-          <div style={{ fontSize: 48, marginBottom: 8 }}>🍳</div>
-          <h1 style={{ fontFamily: "'Syne',sans-serif", fontWeight: 800, fontSize: 28, color: "#1A1A1A", margin: 0 }}>RasoiKit</h1>
-          <p style={{ fontFamily: "'DM Sans',sans-serif", color: "#999", fontSize: 14, marginTop: 4 }}>Fresh ingredients, perfectly measured</p>
+    <div style={S.overlay}>
+      <div style={S.card}>
+        <div style={S.brand}>
+          <span style={S.brandIcon}>🍱</span>
+          <span style={S.brandName}>RasoiKit</span>
         </div>
 
-        <div style={{ background: "#fff", borderRadius: 20, padding: "32px 28px", boxShadow: "0 8px 40px rgba(0,0,0,0.08)" }}>
-
-          {/* ── Step 1: Email input ── */}
-          {step === "email" && (
-            <>
-              <h2 style={{ fontFamily: "'Syne',sans-serif", fontWeight: 800, fontSize: 22, color: "#1A1A1A", marginBottom: 6 }}>Login with OTP</h2>
-              <p style={{ fontFamily: "'DM Sans',sans-serif", color: "#888", fontSize: 14, marginBottom: 28 }}>We'll send a 6-digit code to your email. No password needed.</p>
-
-              <label style={{ fontFamily: "'Syne',sans-serif", fontWeight: 700, fontSize: 12, color: "#555", letterSpacing: 0.5, display: "block", marginBottom: 6 }}>EMAIL ADDRESS</label>
-              <input
-                type="email"
-                value={email}
-                onChange={e => setEmail(e.target.value)}
-                onKeyDown={e => e.key === "Enter" && handleSendOtp()}
-                placeholder="you@example.com"
-                style={{ width: "100%", border: "1.5px solid #E0E0E0", borderRadius: 12, padding: "14px 16px", fontFamily: "'DM Sans',sans-serif", fontSize: 15, outline: "none", boxSizing: "border-box", transition: "border 0.2s", marginBottom: 20 }}
-                onFocus={e => e.target.style.borderColor = "#E23744"}
-                onBlur={e  => e.target.style.borderColor = "#E0E0E0"}
-              />
-
-              <button
-                onClick={handleSendOtp}
-                disabled={loading}
-                style={{ width: "100%", background: loading ? "#ccc" : "linear-gradient(135deg,#E23744,#FF6B35)", border: "none", borderRadius: 13, padding: "15px", color: "#fff", fontFamily: "'Syne',sans-serif", fontWeight: 800, fontSize: 16, cursor: loading ? "not-allowed" : "pointer", boxShadow: loading ? "none" : "0 8px 24px rgba(226,55,68,0.3)", transition: "all 0.2s", marginBottom: 20 }}>
-                {loading ? "Sending…" : "Send OTP →"}
-              </button>
-
-              <p style={{ fontFamily: "'DM Sans',sans-serif", fontSize: 13, color: "#aaa", textAlign: "center" }}>
-                Prefer password?{" "}
-                <Link to="/login" style={{ color: "#E23744", fontWeight: 600, textDecoration: "none" }}>Login here</Link>
-              </p>
-            </>
-          )}
-
-          {/* ── Step 2: OTP input ── */}
-          {step === "otp" && (
-            <>
-              <button onClick={() => { setStep("email"); setOtp(["","","","","",""]); }}
-                style={{ background: "none", border: "none", cursor: "pointer", fontFamily: "'DM Sans',sans-serif", fontSize: 13, color: "#aaa", padding: 0, marginBottom: 20 }}>
-                ← Back
-              </button>
-
-              <h2 style={{ fontFamily: "'Syne',sans-serif", fontWeight: 800, fontSize: 22, color: "#1A1A1A", marginBottom: 6 }}>Enter OTP</h2>
-              <p style={{ fontFamily: "'DM Sans',sans-serif", color: "#888", fontSize: 14, marginBottom: 28 }}>
-                Sent to <strong style={{ color: "#1A1A1A" }}>{email}</strong>. Expires in 5 minutes.
-              </p>
-
-              {/* 6-digit OTP boxes */}
-              <div style={{ display: "flex", gap: 10, justifyContent: "center", marginBottom: 28 }}>
-                {otp.map((digit, idx) => (
-                  <input
-                    key={idx}
-                    ref={el => inputRefs.current[idx] = el}
-                    className="otp-input"
-                    type="text"
-                    inputMode="numeric"
-                    maxLength={1}
-                    value={digit}
-                    onChange={e => handleOtpChange(e.target.value, idx)}
-                    onKeyDown={e => handleOtpKeyDown(e, idx)}
-                    style={{
-                      width: 48, height: 56, textAlign: "center", border: "1.5px solid #E0E0E0",
-                      borderRadius: 12, fontFamily: "'Syne',sans-serif", fontWeight: 800, fontSize: 22,
-                      outline: "none", transition: "border 0.2s, box-shadow 0.2s",
-                      background: digit ? "#FFF0F1" : "#fff", color: "#E23744",
-                    }}
-                  />
-                ))}
+        {step === "email" ? (
+          <>
+            <h2 style={S.title}>Sign in or create account</h2>
+            <p style={S.subtitle}>We'll send a 6-digit code to your email</p>
+            <form onSubmit={handleSendOtp} style={S.form}>
+              <div style={S.inputWrap}>
+                <label style={S.label}>Email address</label>
+                <input
+                  type="email"
+                  value={email}
+                  onChange={e => { setEmail(e.target.value); setError(""); }}
+                  placeholder="you@example.com"
+                  style={{ ...S.input, ...(error ? S.inputError : {}) }}
+                  autoFocus
+                  disabled={loading}
+                />
               </div>
-
-              <button
-                onClick={handleVerifyOtp}
-                disabled={loading || otp.join("").length < 6}
-                style={{ width: "100%", background: (loading || otp.join("").length < 6) ? "#ccc" : "linear-gradient(135deg,#E23744,#FF6B35)", border: "none", borderRadius: 13, padding: "15px", color: "#fff", fontFamily: "'Syne',sans-serif", fontWeight: 800, fontSize: 16, cursor: (loading || otp.join("").length < 6) ? "not-allowed" : "pointer", boxShadow: loading ? "none" : "0 8px 24px rgba(226,55,68,0.3)", transition: "all 0.2s", marginBottom: 16 }}>
-                {loading ? "Verifying…" : "Verify OTP ✓"}
+              {error && <p style={S.errorMsg}>{error}</p>}
+              <button type="submit" style={{ ...S.btn, ...(loading ? S.btnLoading : {}) }} disabled={loading}>
+                {loading ? <span style={S.spinner} /> : "Get OTP →"}
               </button>
+            </form>
+          </>
+        ) : (
+          <>
+            <h2 style={S.title}>Enter verification code</h2>
+            <p style={S.subtitle}>
+              Sent to <strong style={{ color: "#fc8019" }}>{email}</strong>
+              <button onClick={() => { setStep("email"); setError(""); setDigits(["","","","","",""]); }} style={S.changeBtn}>
+                Change
+              </button>
+            </p>
+            <div style={{ ...S.otpRow, ...(shake ? S.shake : {}) }} onPaste={handlePaste}>
+              {digits.map((d, i) => (
+                <input
+                  key={i}
+                  ref={el => inputRefs.current[i] = el}
+                  type="text"
+                  inputMode="numeric"
+                  maxLength={1}
+                  value={d}
+                  onChange={e => handleDigitChange(i, e.target.value)}
+                  onKeyDown={e => handleKeyDown(i, e)}
+                  style={{ ...S.digitBox, ...(d ? S.digitFilled : {}), ...(error ? S.digitError : {}) }}
+                  disabled={loading}
+                />
+              ))}
+            </div>
+            {error && <p style={{ ...S.errorMsg, textAlign: "center", marginTop: 0 }}>{error}</p>}
+            {loading && (
+              <div style={S.verifying}>
+                <span style={S.spinner} />
+                <span style={{ marginLeft: 8, color: "#888", fontSize: 14 }}>Verifying…</span>
+              </div>
+            )}
+            <div style={S.resendRow}>
+              {resendTimer > 0
+                ? <span style={S.resendTimer}>Resend OTP in {resendTimer}s</span>
+                : <button onClick={handleResend} style={S.resendBtn} disabled={loading}>Resend OTP</button>
+              }
+            </div>
+          </>
+        )}
 
-              <p style={{ fontFamily: "'DM Sans',sans-serif", fontSize: 13, color: "#aaa", textAlign: "center" }}>
-                Didn't receive it?{" "}
-                <button onClick={handleResend} disabled={resendCountdown > 0}
-                  style={{ background: "none", border: "none", cursor: resendCountdown > 0 ? "default" : "pointer", fontFamily: "'DM Sans',sans-serif", fontSize: 13, color: resendCountdown > 0 ? "#ccc" : "#E23744", fontWeight: 600, padding: 0 }}>
-                  {resendCountdown > 0 ? `Resend in ${resendCountdown}s` : "Resend OTP"}
-                </button>
-              </p>
-            </>
-          )}
-        </div>
-
-        <p style={{ fontFamily: "'DM Sans',sans-serif", fontSize: 12, color: "#ccc", textAlign: "center", marginTop: 20 }}>
-          New here? OTP login auto-creates your account.
+        <p style={S.footer}>
+          By continuing you agree to our{" "}
+          <a href="#" style={S.link}>Terms</a> &amp; <a href="#" style={S.link}>Privacy Policy</a>
         </p>
       </div>
+      <style>{`
+        @keyframes spin { to { transform: rotate(360deg); } }
+        @keyframes shake { 0%,100%{transform:translateX(0)} 20%{transform:translateX(-8px)} 40%{transform:translateX(8px)} 60%{transform:translateX(-5px)} 80%{transform:translateX(5px)} }
+        @keyframes fadeUp { from{opacity:0;transform:translateY(14px)} to{opacity:1;transform:translateY(0)} }
+      `}</style>
     </div>
   );
 }
+
+const S = {
+  overlay: {
+    minHeight: "100vh",
+    background: "linear-gradient(135deg,#fff8f0,#ffecd2)",
+    display: "flex", alignItems: "center", justifyContent: "center",
+    fontFamily: "'Segoe UI',system-ui,sans-serif", padding: 20,
+  },
+  card: {
+    background: "#fff", borderRadius: 20, padding: "40px 36px 32px",
+    width: "100%", maxWidth: 420,
+    boxShadow: "0 8px 40px rgba(252,128,25,.12),0 2px 8px rgba(0,0,0,.06)",
+    animation: "fadeUp .35s ease",
+  },
+  brand: { display: "flex", alignItems: "center", gap: 10, marginBottom: 28 },
+  brandIcon: { fontSize: 32 },
+  brandName: { fontSize: 22, fontWeight: 700, color: "#1d1d1d", letterSpacing: "-0.5px" },
+  title: { fontSize: 22, fontWeight: 700, color: "#1d1d1d", margin: "0 0 6px", letterSpacing: "-0.3px" },
+  subtitle: { fontSize: 14, color: "#666", margin: "0 0 24px", lineHeight: 1.5 },
+  form: { display: "flex", flexDirection: "column", gap: 16 },
+  inputWrap: { display: "flex", flexDirection: "column", gap: 6 },
+  label: { fontSize: 13, fontWeight: 600, color: "#444" },
+  input: {
+    padding: "13px 16px", borderRadius: 12, border: "1.5px solid #e5e5e5",
+    fontSize: 15, color: "#1d1d1d", outline: "none", background: "#fafafa",
+    transition: "border-color .2s",
+  },
+  inputError: { borderColor: "#e53935" },
+  errorMsg: { fontSize: 13, color: "#e53935", margin: 0, fontWeight: 500 },
+  btn: {
+    padding: 14, borderRadius: 12, border: "none", background: "#fc8019",
+    color: "#fff", fontSize: 16, fontWeight: 700, cursor: "pointer",
+    display: "flex", alignItems: "center", justifyContent: "center",
+    transition: "opacity .2s", marginTop: 4,
+  },
+  btnLoading: { opacity: 0.7, cursor: "not-allowed" },
+  spinner: {
+    width: 20, height: 20,
+    border: "2.5px solid rgba(255,255,255,.35)", borderTopColor: "#fff",
+    borderRadius: "50%", display: "inline-block",
+    animation: "spin .7s linear infinite",
+  },
+  changeBtn: {
+    marginLeft: 8, background: "none", border: "none",
+    color: "#fc8019", fontWeight: 600, fontSize: 13,
+    cursor: "pointer", padding: 0, textDecoration: "underline",
+  },
+  otpRow: { display: "flex", gap: 10, justifyContent: "center", margin: "24px 0 12px" },
+  shake: { animation: "shake .5s ease" },
+  digitBox: {
+    width: 52, height: 58, borderRadius: 12, border: "2px solid #e5e5e5",
+    fontSize: 24, fontWeight: 700, textAlign: "center", color: "#1d1d1d",
+    outline: "none", background: "#fafafa", transition: "border-color .2s,transform .15s",
+    caretColor: "transparent",
+  },
+  digitFilled: { borderColor: "#fc8019", background: "#fff8f0", transform: "scale(1.05)" },
+  digitError: { borderColor: "#e53935", background: "#fff5f5" },
+  verifying: { display: "flex", alignItems: "center", justifyContent: "center", margin: "8px 0" },
+  resendRow: { textAlign: "center", margin: "16px 0 8px" },
+  resendTimer: { fontSize: 13, color: "#aaa" },
+  resendBtn: {
+    background: "none", border: "none", color: "#fc8019",
+    fontWeight: 600, fontSize: 14, cursor: "pointer", padding: 0, textDecoration: "underline",
+  },
+  footer: { fontSize: 12, color: "#aaa", textAlign: "center", marginTop: 24, lineHeight: 1.6 },
+  link: { color: "#fc8019", textDecoration: "none" },
+};

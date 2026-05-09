@@ -3,7 +3,7 @@ import { useNavigate, Link } from "react-router-dom";
 import { api } from "./api";
 import { useAuth } from "./App";
 
-export default function Login() {
+export default function Login({ onLogin }) {
   const navigate = useNavigate();
   const { login } = useAuth();
   const [form,    setForm]    = useState({ email:"", password:"" });
@@ -17,8 +17,8 @@ export default function Login() {
     setLoading(true);
     try {
       const resp = await api.login(form);
-      login({ name:resp.name||resp.email, email:resp.email, userId:resp.userId||resp.id, role:resp.role }, resp.accessToken||resp.token);
-      navigate("/");
+      login(resp);
+      if (onLogin) onLogin(resp); else navigate("/");
     } catch(e) { setError(e.message||"Invalid email or password"); }
     finally { setLoading(false); }
   };
@@ -79,7 +79,12 @@ export default function Login() {
             </button>
           </form>
 
-          <p style={{fontFamily:"'DM Sans',sans-serif",textAlign:"center",fontSize:14,color:"#999",marginTop:24}}>
+          <div style={{marginTop:16,textAlign:"center"}}>
+            <button onClick={() => navigate("/otp-login")} style={{background:"none",border:"none",color:"#E23744",fontWeight:600,fontSize:14,cursor:"pointer",fontFamily:"'DM Sans',sans-serif",textDecoration:"underline",padding:0}}>
+              Sign in with OTP instead →
+            </button>
+          </div>
+          <p style={{fontFamily:"'DM Sans',sans-serif",textAlign:"center",fontSize:14,color:"#999",marginTop:16}}>
             Don't have an account?{" "}<Link to="/register" style={{color:"#E23744",fontWeight:600,textDecoration:"none"}}>Create one →</Link>
           </p>
           <div style={{marginTop:28,background:"#F8F8F8",borderRadius:12,padding:"14px 16px",borderLeft:"3px solid #E23744"}}>

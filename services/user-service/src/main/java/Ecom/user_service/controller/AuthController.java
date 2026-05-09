@@ -79,9 +79,7 @@ public class AuthController {
         boolean valid = otpService.verifyOtp(request.getEmail(), request.getOtp());
         if (!valid) {
             return ResponseEntity.badRequest()
-                    .body(AuthResponse.builder()
-                            .accessToken(null)
-                            .build());
+    .body(Map.of("message", "Invalid or expired OTP"));
         }
         // Auto-register if first-time OTP login
         AuthResponse auth = userService.loginOrRegisterByEmail(request.getEmail());

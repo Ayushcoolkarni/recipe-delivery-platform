@@ -1,13 +1,16 @@
 import React, { useState, useEffect, createContext, useContext } from "react";
 import { Routes, Route, Navigate, useNavigate, Link, useLocation } from "react-router-dom";
 
-import Home from "./Home";
-import Recipes from "./Recipes";
+import Home       from "./Home";
+import Recipes    from "./Recipes";
 import RecipeDetail from "./RecipeDetail";
-import Cart from "./Cart";
-import Orders from "./Orders";
-import Login from "./Login";
-import Register from "./Register";
+import Cart       from "./Cart";
+import Orders     from "./Orders";
+import Login      from "./Login";
+import Register   from "./Register";
+import OtpLogin   from "./OtpLogin";
+import AdminApp   from "./admin/AdminApp";
+import NotFound   from "./NotFound";
 
 // ─── Contexts ─────────────────────────────────────────────────────────────────
 const AuthCtx  = createContext(null);
@@ -50,26 +53,64 @@ function ToastProvider({ children }) {
 }
 
 // ─── Auth Provider ────────────────────────────────────────────────────────────
+// Stores full user object (includes role) under rce_u, token under rce_t.
+// Also mirrors token/userId/role into localStorage keys used by api.js calls
+// inside Cart, AdminApp, Orders etc.
 function AuthProvider({ children }) {
-  const [user,  setUser]  = useState(() => { try { return JSON.parse(localStorage.getItem("rce_u")); } catch { return null; }});
+  const [user,  setUser]  = useState(() => {
+    try { return JSON.parse(localStorage.getItem("rce_u")); } catch { return null; }
+  });
   const [token, setToken] = useState(() => localStorage.getItem("rce_t"));
 
-  const login = (u, t) => {
-    setUser(u); setToken(t);
-    localStorage.setItem("rce_u", JSON.stringify(u));
-    localStorage.setItem("rce_t", t);
-  };
-  const logout = () => {
-    setUser(null); setToken(null);
-    localStorage.removeItem("rce_u"); localStorage.removeItem("rce_t");
+  // Mirror keys so Cart.jsx / AdminApp.jsx / Orders.jsx can read them
+  const syncMirrorKeys = (u, t) => {
+    if (u && t) {
+      localStorage.setItem("token",  t);
+      localStorage.setItem("userId", String(u.userId ?? u.id ?? ""));
+      localStorage.setItem("role",   u.role || "USER");
+    } else {
+      localStorage.removeItem("token");
+      localStorage.removeItem("userId");
+      localStorage.removeItem("role");
+    }
   };
 
-  return <AuthCtx.Provider value={{ user, token, login, logout }}>{children}</AuthCtx.Provider>;
+  // Called by Login, Register, and OtpLogin on success.
+  // Accepts the raw API response: { accessToken, userId, name, email, role }
+  const login = (apiResponse) => {
+    const { accessToken, userId, name, email, role } = apiResponse;
+    const u = { userId, name, email, role };
+    const t = accessToken;
+    setUser(u);
+    setToken(t);
+    localStorage.setItem("rce_u", JSON.stringify(u));
+    localStorage.setItem("rce_t", t);
+    syncMirrorKeys(u, t);
+  };
+
+  const logout = () => {
+    setUser(null);
+    setToken(null);
+    localStorage.removeItem("rce_u");
+    localStorage.removeItem("rce_t");
+    syncMirrorKeys(null, null);
+  };
+
+  // Sync mirror keys on mount (page refresh)
+  useEffect(() => { syncMirrorKeys(user, token); }, []);
+
+  return (
+    <AuthCtx.Provider value={{ user, token, login, logout }}>
+      {children}
+    </AuthCtx.Provider>
+  );
 }
 
 // ─── Cart Provider ────────────────────────────────────────────────────────────
 function CartProvider({ children }) {
-  const [items, setItems] = useState(() => { try { return JSON.parse(localStorage.getItem("rce_cart")) || []; } catch { return []; }});
+  const [items, setItems] = useState(() => {
+    try { return JSON.parse(localStorage.getItem("rce_cart")) || []; } catch { return []; }
+  });
 
   useEffect(() => { localStorage.setItem("rce_cart", JSON.stringify(items)); }, [items]);
 
@@ -83,29 +124,42 @@ function CartProvider({ children }) {
   const total     = items.reduce((s, i) => s + i.price * i.qty, 0);
   const count     = items.reduce((s, i) => s + i.qty, 0);
 
-  return <CartCtx.Provider value={{ items, add, remove, updateQty, clear, total, count }}>{children}</CartCtx.Provider>;
+  return (
+    <CartCtx.Provider value={{ items, add, remove, updateQty, clear, total, count }}>
+      {children}
+    </CartCtx.Provider>
+  );
 }
 
-// ─── Protected Route ──────────────────────────────────────────────────────────
+// ─── Route Guards ─────────────────────────────────────────────────────────────
 function Protected({ children }) {
   const { user } = useAuth();
-  return user ? children : <Navigate to="/login" />;
+  return user ? children : <Navigate to="/login" replace />;
+}
+
+function AdminOnly({ children }) {
+  const { user } = useAuth();
+  if (!user) return <Navigate to="/login" replace />;
+  if (user.role !== "ADMIN") return <Navigate to="/" replace />;
+  return children;
 }
 
 // ─── Navbar ───────────────────────────────────────────────────────────────────
 function Navbar() {
-  const navigate    = useNavigate();
-  const location    = useLocation();
+  const navigate         = useNavigate();
+  const location         = useLocation();
   const { user, logout } = useAuth();
-  const { count }   = useCart();
+  const { count }        = useCart();
   const [scrolled, setScrolled] = useState(false);
-  const [menuOpen, setMenuOpen] = useState(false);
 
   useEffect(() => {
     const handler = () => setScrolled(window.scrollY > 20);
     window.addEventListener("scroll", handler);
     return () => window.removeEventListener("scroll", handler);
   }, []);
+
+  // Hide navbar inside admin panel — it has its own sidebar
+  if (location.pathname.startsWith("/admin")) return null;
 
   const isHome = location.pathname === "/";
 
@@ -131,6 +185,7 @@ function Navbar() {
         borderBottom: scrolled ? "1px solid rgba(0,0,0,0.06)" : "none",
       }}>
         <div style={{ maxWidth: 1200, margin: "0 auto", padding: "0 24px", height: 64, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+
           {/* Logo */}
           <Link to="/" style={{ textDecoration: "none", display: "flex", alignItems: "center", gap: 8 }}>
             <div style={{
@@ -149,22 +204,25 @@ function Navbar() {
             </span>
           </Link>
 
-          {/* Desktop links */}
+          {/* Nav links */}
           <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
             {[
               { to: "/recipes", label: "Explore" },
               ...(user ? [{ to: "/orders", label: "Orders" }] : []),
+              ...(user?.role === "ADMIN" ? [{ to: "/admin", label: "Admin" }] : []),
             ].map(({ to, label }) => (
               <Link key={to} to={to} style={{
                 textDecoration: "none", padding: "8px 16px", borderRadius: 8,
                 fontFamily: "'DM Sans', sans-serif", fontWeight: 500, fontSize: 14,
                 color: scrolled || !isHome ? "#555" : "rgba(255,255,255,0.85)",
                 transition: "all 0.2s",
-                background: location.pathname === to ? (scrolled || !isHome ? "#FFF0F1" : "rgba(255,255,255,0.15)") : "transparent",
+                background: location.pathname.startsWith(to)
+                  ? (scrolled || !isHome ? "#FFF0F1" : "rgba(255,255,255,0.15)")
+                  : "transparent",
               }}>{label}</Link>
             ))}
 
-            {/* Cart */}
+            {/* Cart icon */}
             <button onClick={() => navigate("/cart")} style={{
               position: "relative", background: "none", border: "none",
               cursor: "pointer", padding: "8px 12px", borderRadius: 8,
@@ -187,7 +245,7 @@ function Navbar() {
               )}
             </button>
 
-            {/* Auth */}
+            {/* Auth section */}
             {user ? (
               <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                 <div style={{
@@ -211,7 +269,8 @@ function Navbar() {
             ) : (
               <div style={{ display: "flex", gap: 8 }}>
                 <button onClick={() => navigate("/login")} style={{
-                  background: "none", border: `1px solid ${scrolled || !isHome ? "rgba(0,0,0,0.15)" : "rgba(255,255,255,0.4)"}`,
+                  background: "none",
+                  border: `1px solid ${scrolled || !isHome ? "rgba(0,0,0,0.15)" : "rgba(255,255,255,0.4)"}`,
                   borderRadius: 8, padding: "7px 16px", cursor: "pointer",
                   color: scrolled || !isHome ? "#1A1A1A" : "#fff",
                   fontSize: 13, fontWeight: 500, fontFamily: "'DM Sans', sans-serif",
@@ -221,7 +280,8 @@ function Navbar() {
                   background: "linear-gradient(135deg, #E23744, #FF6B35)",
                   border: "none", borderRadius: 8, padding: "7px 16px", cursor: "pointer",
                   color: "#fff", fontSize: 13, fontWeight: 600,
-                  fontFamily: "'Syne', sans-serif", boxShadow: "0 4px 12px rgba(226,55,68,0.3)",
+                  fontFamily: "'Syne', sans-serif",
+                  boxShadow: "0 4px 12px rgba(226,55,68,0.3)",
                   transition: "all 0.2s",
                 }}>Sign up</button>
               </div>
@@ -233,25 +293,62 @@ function Navbar() {
   );
 }
 
-// ─── App ──────────────────────────────────────────────────────────────────────
+// ─── App Shell ────────────────────────────────────────────────────────────────
+function AppShell() {
+  const navigate         = useNavigate();
+  const location         = useLocation();
+  const { login, logout } = useAuth();
+
+  const isAdmin = location.pathname.startsWith("/admin");
+
+  return (
+    <>
+      <Navbar />
+
+      {/* No paddingTop inside admin — it manages its own layout */}
+      <div style={isAdmin ? {} : { paddingTop: 64 }}>
+        <Routes>
+          {/* Public */}
+          <Route path="/"            element={<Home />} />
+          <Route path="/recipes"     element={<Recipes />} />
+          <Route path="/recipe/:id"  element={<RecipeDetail />} />
+
+          {/* Auth pages — redirect away if already logged in */}
+          <Route path="/login"       element={
+            <Login onLogin={(data) => { login(data); navigate("/"); }} />
+          } />
+          <Route path="/register"    element={
+            <Register onLogin={(data) => { login(data); navigate("/"); }} />
+          } />
+          <Route path="/otp-login"   element={
+            <OtpLogin onLogin={(data) => { login(data); navigate("/"); }} />
+          } />
+
+          {/* Protected user routes */}
+          <Route path="/cart"        element={<Protected><Cart   onNavigate={(p) => navigate(`/${p}`)} /></Protected>} />
+          <Route path="/orders"      element={<Protected><Orders onNavigate={(p) => navigate(`/${p}`)} /></Protected>} />
+
+          {/* Admin — role-gated, full-screen (no navbar) */}
+          <Route path="/admin/*"     element={
+            <AdminOnly>
+              <AdminApp onLogout={() => { logout(); navigate("/login"); }} />
+            </AdminOnly>
+          } />
+
+          {/* 404 */}
+          <Route path="*"            element={<NotFound />} />
+        </Routes>
+      </div>
+    </>
+  );
+}
+
 export default function App() {
   return (
     <AuthProvider>
       <CartProvider>
         <ToastProvider>
-          <Navbar />
-          <div style={{ paddingTop: 64 }}>
-            <Routes>
-              <Route path="/"          element={<Home />} />
-              <Route path="/recipes"   element={<Recipes />} />
-              <Route path="/recipe/:id" element={<RecipeDetail />} />
-              <Route path="/login"     element={<Login />} />
-              <Route path="/register"  element={<Register />} />
-              <Route path="/cart"      element={<Protected><Cart /></Protected>} />
-              <Route path="/orders"    element={<Protected><Orders /></Protected>} />
-              <Route path="*"          element={<Navigate to="/" />} />
-            </Routes>
-          </div>
+          <AppShell />
         </ToastProvider>
       </CartProvider>
     </AuthProvider>

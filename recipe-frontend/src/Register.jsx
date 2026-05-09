@@ -3,7 +3,7 @@ import { useNavigate, Link } from "react-router-dom";
 import { api } from "./api";
 import { useAuth } from "./App";
 
-export default function Register() {
+export default function Register({ onLogin }) {
   const navigate = useNavigate();
   const { login } = useAuth();
   const [form,    setForm]    = useState({ name:"", email:"", password:"", phone:"" });
@@ -18,9 +18,9 @@ export default function Register() {
     setLoading(true);
     try {
       await api.register(form);
-      const resp = await api.login({ email:form.email, password:form.password });
-      login({ name:resp.name||form.name, email:resp.email||form.email, userId:resp.userId||resp.id, role:resp.role }, resp.accessToken||resp.token);
-      navigate("/");
+      const resp = await api.login({ email: form.email, password: form.password });
+      login(resp);
+      if (onLogin) onLogin(resp); else navigate("/");
     } catch(e) { setError(e.message||"Registration failed. Try again."); }
     finally { setLoading(false); }
   };
